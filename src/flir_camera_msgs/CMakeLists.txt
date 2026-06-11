@@ -30,6 +30,8 @@ rosidl_generate_interfaces(
   DEPENDENCIES builtin_interfaces std_msgs
   ADD_LINTER_TESTS)
 
+# lint-only tests below; skipped so the build works without the ament lint packages
+set(BUILD_TESTING OFF)
 if(BUILD_TESTING)
   find_package(ament_cmake REQUIRED)
   find_package(ament_cmake_copyright REQUIRED)

@@ -204,6 +204,9 @@ install(PROGRAMS
 )
 
 
+# lint-only tests below; skipped so the build works without the ament lint
+# packages (ament_cmake_clang_format etc. are not installed as binaries)
+set(BUILD_TESTING OFF)
 if(BUILD_TESTING)
   find_package(ament_cmake REQUIRED)
   find_package(ament_cmake_copyright REQUIRED)
