@@ -19,7 +19,8 @@ from launch.actions import OpaqueFunction
 from launch.substitutions import EnvironmentVariable
 from launch.substitutions import LaunchConfiguration as LaunchConfig
 from launch.substitutions import PathJoinSubstitution
-from launch_ros.actions import Node
+from launch_ros.actions import ComposableNodeContainer, Node
+from launch_ros.descriptions import ComposableNode
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
@@ -100,17 +101,49 @@ def launch_setup(context, *args, **kwargs):
         ],
     )
 
-    # debayer: subscribes <camera_name>/image_raw + camera_info,
-    # publishes image_mono / image_color / image_rect / image_rect_color
-    debayer_node = Node(
-        package='image_proc',
-        executable='image_proc',
-        name='image_proc_debayer',
+    # debayer + rectify pipeline. The humble `image_proc` executable cannot be
+    # used here: it spawns debayer + 2 rectify components WITHOUT the topic
+    # remappings its comments claim, so the rectify nodes wait forever on
+    # <camera_name>/image and warn "Topics ... do not appear to be synchronized".
+    # Compose the components with explicit remappings instead (same wiring as
+    # upstream image_proc.launch.py).
+    image_proc_container = ComposableNodeContainer(
+        name='image_proc_container',
         namespace=[camera_name],
+        package='rclcpp_components',
+        executable='component_container',
         output='screen',
+        composable_node_descriptions=[
+            # image_raw -> image_mono, image_color
+            ComposableNode(
+                package='image_proc',
+                plugin='image_proc::DebayerNode',
+                name='debayer_node',
+                namespace=[camera_name],
+            ),
+            # image_mono + camera_info -> image_rect
+            ComposableNode(
+                package='image_proc',
+                plugin='image_proc::RectifyNode',
+                name='rectify_mono_node',
+                namespace=[camera_name],
+                remappings=[('image', 'image_mono')],
+            ),
+            # image_color + camera_info -> image_rect_color
+            ComposableNode(
+                package='image_proc',
+                plugin='image_proc::RectifyNode',
+                name='rectify_color_node',
+                namespace=[camera_name],
+                remappings=[
+                    ('image', 'image_color'),
+                    ('image_rect', 'image_rect_color'),
+                ],
+            ),
+        ],
     )
 
-    return [camera_node, debayer_node]
+    return [camera_node, image_proc_container]
 
 
 def generate_launch_description():
