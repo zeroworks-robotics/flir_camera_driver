@@ -5,8 +5,14 @@
 #
 # Port of the ROS1 (noetic) flir_install.sh. Differences:
 #   - Spinnaker / Ubuntu versions are variables (no hardcoded strings below)
-#   - SDK is taken from a local package dir if present (this repo ships one),
-#     optional URL download as fallback
+#   - SDK is taken from the package placed NEXT TO THIS SCRIPT, either the
+#     extracted dir or the tar.gz (auto-extracted on first run):
+#       script/
+#       ├── flir_install.sh
+#       ├── spinnaker-<version>-Ubuntu<os>-amd64-pkg.tar.gz   (this, or...)
+#       └── spinnaker-<version>-Ubuntu<os>-amd64-pkg/         (...this)
+#           └── spinnaker-<version>-amd64/   (deb files)
+#     (download from https://www.flir.com/products/spinnaker-sdk/)
 #   - SDK prerequisite libs for 22.04 are installed first (from the SDK README)
 #   - ROS dependencies are the ROS2 Humble equivalents
 
@@ -16,11 +22,6 @@ DEB_ARCH="amd64"
 
 SDK_DIR_NAME="spinnaker-${SPINNAKER_VERSION}-${DEB_ARCH}"
 PKG_DIR_NAME="spinnaker-${SPINNAKER_VERSION}-Ubuntu${UBUNTU_VERSION}-${DEB_ARCH}-pkg"
-TAR_GZ_NAME="${PKG_DIR_NAME}.tar.gz"
-# Optional: set this to a download URL for ${TAR_GZ_NAME} to enable wget
-# fallback when no local SDK package directory is found.
-# (FLIR asset URLs change per release - get the current one from flir.com/support)
-SPINNAKER_TGZ_URL=""
 
 if [ "$(id -u)" = "0" ]
 then
@@ -39,35 +40,27 @@ else
 fi
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-DOWNLOADED_TAR=""
 
 ############################################################################################################################
-# Locate (or download) the Spinnaker SDK package directory
-if [ -d "${SCRIPT_DIR}/../../${PKG_DIR_NAME}/${SDK_DIR_NAME}" ]
+# Locate the Spinnaker SDK package next to this script: either the already
+# extracted directory, or the tar.gz archive (extracted automatically)
+SDK_DIR="${SCRIPT_DIR}/${PKG_DIR_NAME}/${SDK_DIR_NAME}"
+TAR_GZ_PATH="${SCRIPT_DIR}/${PKG_DIR_NAME}.tar.gz"
+if [ ! -d "$SDK_DIR" ] && [ -f "$TAR_GZ_PATH" ]
 then
-    # local package dir shipped next to this repository
-    SDK_DIR=$(CDPATH= cd -- "${SCRIPT_DIR}/../../${PKG_DIR_NAME}/${SDK_DIR_NAME}" && pwd)
-    echo "Using local Spinnaker SDK package: ${SDK_DIR}"
-elif [ -d "/home/$(logname)/${SDK_DIR_NAME}" ]
+    echo "Extracting ${TAR_GZ_PATH}"
+    tar xzf "$TAR_GZ_PATH" -C "$SCRIPT_DIR" || exit 1
+fi
+if [ ! -d "$SDK_DIR" ]
 then
-    SDK_DIR="/home/$(logname)/${SDK_DIR_NAME}"
-    echo "Using previously extracted Spinnaker SDK: ${SDK_DIR}"
-elif [ -n "$SPINNAKER_TGZ_URL" ]
-then
-    cd "/home/$(logname)"
-    echo "Downloading Spinnaker SDK from ${SPINNAKER_TGZ_URL}"
-    wget -O "${TAR_GZ_NAME}" "$SPINNAKER_TGZ_URL" || exit 1
-    tar xzvf "${TAR_GZ_NAME}"
-    DOWNLOADED_TAR="/home/$(logname)/${TAR_GZ_NAME}"
-    SDK_DIR="/home/$(logname)/${SDK_DIR_NAME}"
-else
-    echo "ERROR: Spinnaker SDK package not found." >&2
-    echo "Looked for: ${SCRIPT_DIR}/../../${PKG_DIR_NAME}/${SDK_DIR_NAME}" >&2
-    echo "       and: /home/$(logname)/${SDK_DIR_NAME}" >&2
-    echo "Either place the extracted SDK package there, or set SPINNAKER_TGZ_URL" >&2
-    echo "at the top of this script." >&2
+    echo "ERROR: Spinnaker SDK package not found. Looked for:" >&2
+    echo "  ${SDK_DIR}" >&2
+    echo "  ${TAR_GZ_PATH}" >&2
+    echo "Download the SDK from https://www.flir.com/products/spinnaker-sdk/" >&2
+    echo "and place ${PKG_DIR_NAME} (dir or .tar.gz) next to this script." >&2
     exit 1
 fi
+echo "Using local Spinnaker SDK package: ${SDK_DIR}"
 
 cd "$SDK_DIR"
 
@@ -82,9 +75,22 @@ sudo apt-get install -y \
     qtbase5-dev qtchooser qt5-qmake qtbase5-dev-tools
 
 ############################################################################################################################
+# Make the libgentl install prompt-free:
+#  - EULA: preseeding accepted-flir-eula=true makes the preinst skip the
+#    license dialog entirely.
+#    NOTE: this accepts the "FLIR Spinnaker SDK License Agreement" without
+#    displaying it. Full text after install: /var/lib/dpkg/info/libgentl.templates
+#  - analytics consent: the preinst db_reset's any preseeded answer and
+#    force-asks every install, and it runs with set -e, so the noninteractive
+#    frontend makes it die with exit 30 (db_input returns "question skipped").
+#    The teletype frontend with "no" piped to stdin answers the question
+#    non-interactively instead (= decline anonymous data collection).
+echo "libgentl libspinnaker/accepted-flir-eula boolean true" | sudo debconf-set-selections
+
+############################################################################################################################
 # install_spinnaker.sh
 echo "Installing Spinnaker packages..."
-sudo dpkg -i libgentl_*.deb
+printf 'no\n' | sudo DEBIAN_FRONTEND=teletype dpkg -i libgentl_*.deb
 sudo dpkg -i libspinnaker_*.deb
 sudo dpkg -i libspinnaker-dev_*.deb
 sudo dpkg -i libspinnaker-c_*.deb
@@ -102,7 +108,8 @@ sudo dpkg -i spinnaker-doc_*.deb
 ############################################################################################################################
 #configure_spinnaker.sh
 grpname="flirimaging"
-usrname=$(logname)
+# logname fails without a login session (e.g. docker) - fall back gracefully
+usrname=$(logname 2>/dev/null || echo "${SUDO_USER:-$(id -un)}")
 if (getent passwd $usrname > /dev/null)
     then
         groupadd -f $grpname
@@ -116,10 +123,14 @@ fi
 UdevFile="/etc/udev/rules.d/40-flir-spinnaker.rules"
 echo
 echo "Writing the udev rules file...";
+mkdir -p /etc/udev/rules.d
 echo "SUBSYSTEM==\"usb\", ATTRS{idVendor}==\"1e10\", GROUP=\"$grpname\"" 1>>$UdevFile
 echo "SUBSYSTEM==\"usb\", ATTRS{idVendor}==\"1724\", GROUP=\"$grpname\"" 1>>$UdevFile
 
-service udev restart
+# no udev daemon inside docker containers - device access is governed by the
+# host there, so a failed restart is fine
+service udev restart 2>/dev/null || /etc/init.d/udev restart 2>/dev/null \
+    || echo "udev restart skipped (no udev daemon - docker container?)"
 
 echo "Configuration complete."
 echo "A reboot may be required on some systems for changes to take effect."
@@ -319,12 +330,5 @@ sudo apt install -y \
     ffmpeg \
     libomp-dev \
     python3-colcon-common-extensions
-
-############################################################################################################################
-# cleanup (only if this script downloaded the archive)
-if [ -n "$DOWNLOADED_TAR" ] && [ -f "$DOWNLOADED_TAR" ]
-then
-    sudo rm "$DOWNLOADED_TAR"
-fi
 
 exit 0
