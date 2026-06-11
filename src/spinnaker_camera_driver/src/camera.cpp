@@ -278,6 +278,14 @@ void Camera::openDevice()
   for (int retry = 1; retry < 6; retry++) {
     wrapper_->refreshCameraList();
     const auto camList = wrapper_->getSerialNumbers();
+    // serial "0", "" or unset selects the first camera found,
+    // matching the ROS1 driver behavior (camera_serial=0)
+    if (
+      (serial_ == "0" || serial_.empty() || serial_ == "missing_serial_number") &&
+      !camList.empty()) {
+      serial_ = camList[0];
+      LOG_INFO("no serial given, auto-selecting first camera: " << serial_);
+    }
     if (std::find(camList.begin(), camList.end(), serial_) == camList.end()) {
       LOG_WARN("no camera found with serial: " << serial_ << " on try # " << retry);
       for (const auto & cam : camList) {

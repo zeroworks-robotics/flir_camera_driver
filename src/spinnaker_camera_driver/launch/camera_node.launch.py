@@ -7,9 +7,10 @@
 #   - parameter defaults reproduce the ROS1 cfg/Spinnaker.cfg tuning
 #     (see docs/driver_source_changes.md in the migration workspace)
 #
-# Find your camera serial: launch with the default serial once and the driver
-# will log " instead found camera: <serial>" for every detected camera,
-# or use SpinView.
+# Serial: the default ('0') auto-selects the first camera found (patched
+# driver behavior, see src/camera.cpp openDevice()). With multiple cameras
+# pass an explicit serial; find it via SpinView, /opt/spinnaker/bin/Enumeration,
+# or the driver log (" instead found camera: <serial>").
 # -----------------------------------------------------------------------------
 
 from launch import LaunchDescription
@@ -124,7 +125,7 @@ def generate_launch_description():
             LaunchArg(
                 'serial',
                 default_value="'0'",
-                description='FLIR serial number of camera (in quotes!!)',
+                description="FLIR serial number (in quotes!!); '0' auto-selects the first camera",
             ),
             LaunchArg(
                 'parameter_file',
