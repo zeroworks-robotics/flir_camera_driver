@@ -37,6 +37,7 @@ from launch_ros.substitutions import FindPackageShare
 #   acquisition_frame_rate(_enable)-> frame_rate(_enable)  [launch args below]
 tuned_parameters = {
     'debug': False,
+    'print_status': False,  # disable the periodic "IN: ... Hz OUT: ... Hz drop ..%" log
     'compute_brightness': False,
     'adjust_timestamp': True,
     'dump_node_map': False,

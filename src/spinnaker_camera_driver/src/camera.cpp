@@ -411,6 +411,8 @@ void Camera::checkSubscriptions()
 void Camera::readParameters()
 {
   quiet_ = safe_declare<bool>(prefix_ + "quiet", false);
+  // keep false if the owner (e.g. synchronized driver) already disabled the status timer
+  runStatusTimer_ = runStatusTimer_ && safe_declare<bool>(prefix_ + "print_status", true);
   serial_ = safe_declare<std::string>(prefix_ + "serial_number", "missing_serial_number");
   if (!quiet_) {
     LOG_INFO("reading ros parameters for camera with serial: " << serial_);
