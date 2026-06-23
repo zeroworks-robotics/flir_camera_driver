@@ -85,6 +85,8 @@ def launch_setup(context, *args, **kwargs):
         executable='camera_driver_node',
         output='screen',
         name=[camera_name],
+        respawn=True,
+        respawn_delay=2.0,
         parameters=[
             tuned_parameters,
             {
@@ -114,6 +116,8 @@ def launch_setup(context, *args, **kwargs):
         package='rclcpp_components',
         executable='component_container',
         output='screen',
+        respawn=True,
+        respawn_delay=2.0,
         composable_node_descriptions=[
             # image_raw -> image_mono, image_color
             ComposableNode(
