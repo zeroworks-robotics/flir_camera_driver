@@ -87,6 +87,14 @@ def launch_setup(context, *args, **kwargs):
         name=[camera_name],
         respawn=True,
         respawn_delay=2.0,
+        # Inject the Spinnaker GenTL producer path directly so the node works
+        # under systemd (where /etc/profile.d/setup_flir_gentl_64.sh is not
+        # sourced). SDK 4.3 ships the CTI under spinnaker-gentl/Spinnaker_GenTL.cti
+        # (older SDKs used flir-gentl/FLIR_GenTL.cti).
+        additional_env={
+            'FLIR_GENTL64_CTI': '/opt/spinnaker/lib/spinnaker-gentl/Spinnaker_GenTL.cti',
+            'GENICAM_GENTL64_PATH': '/opt/spinnaker/lib/spinnaker-gentl',
+        },
         parameters=[
             tuned_parameters,
             {
