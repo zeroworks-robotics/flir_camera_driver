@@ -144,6 +144,30 @@ Spinnaker::GenApi::CNodePtr SpinnakerCamera::readProperty(const Spinnaker::GenIC
 
 void SpinnakerCamera::connect()
 {
+  // If no serial was specified (serial_ == 0), pre-read it from the first camera's
+  // transport-layer node map. This does NOT require Init(), so the serial is secured
+  // before any connection step can fail. Keeping serial_ valid ensures disconnect()'s
+  // RemoveBySerial() uses the real serial instead of "0" (Spinnaker errors -1014/-1009).
+  if (serial_ == 0 && camList_.GetSize() > 0)
+  {
+    try
+    {
+      Spinnaker::CameraPtr first_cam = camList_.GetByIndex(0);
+      Spinnaker::GenApi::INodeMap& tl_node_map = first_cam->GetTLDeviceNodeMap();
+      Spinnaker::GenApi::CStringPtr serial_ptr =
+          static_cast<Spinnaker::GenApi::CStringPtr>(tl_node_map.GetNode("DeviceSerialNumber"));
+      if (IsAvailable(serial_ptr) && IsReadable(serial_ptr))
+      {
+        serial_ = atoi(serial_ptr->GetValue().c_str());
+        ROS_INFO("[SpinnakerCamera::connect]: Pre-read camera serial: %i", serial_);
+      }
+    }
+    catch (const Spinnaker::Exception& e)
+    {
+      ROS_WARN("[SpinnakerCamera::connect]: Could not pre-read serial: %s", e.what());
+    }
+  }
+
   if (!pCam_)
   {
     // If we have a specific camera to connect to (specified by a serial number)
@@ -285,7 +309,10 @@ void SpinnakerCamera::disconnect()
     {
       pCam_->DeInit();
       pCam_ = static_cast<int>(NULL);
-      camList_.RemoveBySerial(std::to_string(serial_));
+      // Only remove by serial when we actually have a valid serial. Removing "0"
+      // raises Spinnaker errors -1014/-1009 ("serial number \"0\" not found").
+      if (serial_ != 0)
+        camList_.RemoveBySerial(std::to_string(serial_));
     }
     Spinnaker::CameraList temp_list = system_->GetCameras();
     camList_.Append(temp_list);
@@ -354,6 +381,9 @@ void SpinnakerCamera::grabImage(sensor_msgs::Image* image, const std::string& fr
         ROS_WARN_STREAM_ONCE("[SpinnakerCamera::grabImage] Image received from camera "
                               << std::to_string(serial_)
                               << " is incomplete. Trying again.");
+        // Release the incomplete buffer back to the pool before requesting a new one,
+        // otherwise the buffer pool gets exhausted (Spinnaker error -1020).
+        image_ptr->Release();
         image_ptr = pCam_->GetNextImage(timeout_);
       }
 
